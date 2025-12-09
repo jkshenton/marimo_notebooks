@@ -2,13 +2,13 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "marimo",
-#     "castep-outputs",
+#     "castep-outputs==0.2.0",
 #     "pandas",
 #     "numpy",
 #     "ase",
 #     "altair<6.0.0",
 #     "pyarrow",
-#     "weas-widget",
+#     "weas-widget==0.1.26",
 # ]
 # ///
 """
