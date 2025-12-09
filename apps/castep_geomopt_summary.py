@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import marimo
 
-__generated_with = "0.18.2"
+__generated_with = "0.18.1"
 app = marimo.App(width="medium")
 
 # Setup cell: imports available to @app.function decorated functions
@@ -42,12 +42,11 @@ with app.setup:
     from pathlib import Path
     from ase import Atoms, units
 
+
 @app.cell
 def _():
     import marimo as mo
     return (mo,)
-
-
 
 
 @app.cell(hide_code=True)
@@ -69,23 +68,13 @@ def _():
     from weas_widget.base_widget import BaseWidget
     from weas_widget.atoms_viewer import AtomsViewer
     from weas_widget.utils import ASEAdapter
-    return (
-        ASEAdapter,
-        AtomsViewer,
-        BaseWidget,
-        alt,
-        tempfile,
-    )
+    return ASEAdapter, AtomsViewer, BaseWidget, alt, tempfile
 
-
-# =============================================================================
-# Step 1: File → list[Atoms]
-# =============================================================================
 
 @app.function
 def geom_to_trajectory(file_path):
     """Parse .geom file into ASE Atoms trajectory.
-    
+
     Each Atoms object has:
       - arrays['forces']: Forces on each atom (eV/Å)
       - info['enthalpy']: Enthalpy in eV (includes PV work for variable cell)
@@ -94,23 +83,23 @@ def geom_to_trajectory(file_path):
       - info['iteration']: 1-based iteration number
     """
     file_path = Path(file_path)
-    
+
     # Unit conversions
     Ha_to_eV = units.Ha
     Bohr_to_Ang = units.Bohr
     Ha_Bohr3_to_GPa = units.Ha / units.Bohr**3 / units.GPa
-    
+
     # Parse file into frames
     with open(file_path, 'r') as f:
         content = f.read()
-    
+
     lines = content.split('\n')
     start_idx = 0
     for i, line in enumerate(lines):
         if 'END header' in line:
             start_idx = i + 2
             break
-    
+
     # Split into frames by blank lines
     data_lines = lines[start_idx:]
     raw_frames = []
@@ -124,10 +113,10 @@ def geom_to_trajectory(file_path):
             current_frame.append(line)
     if current_frame:
         raw_frames.append(current_frame)
-    
+
     # Parse each frame
     frames = [parse_md_geom_frame(iter(raw_frame)) for raw_frame in raw_frames]
-    
+
     # Convert to Atoms objects
     trajectory = []
     for i, frame in enumerate(frames):
@@ -135,54 +124,53 @@ def geom_to_trajectory(file_path):
         ions = frame.get('ions', {})
         if len(lattice) < 3 or not ions:
             continue
-        
+
         # Cell and positions
         cell = np.array(lattice[-3:]) * Bohr_to_Ang
         symbols = [s for s, _ in ions.keys()]
         positions = np.array([ion['R'] for ion in ions.values()]) * Bohr_to_Ang
-        
+
         atoms = Atoms(symbols=symbols, positions=positions, cell=cell, pbc=True)
-        
+
         # Forces (eV/Å)
         forces = np.array([ion['F'] for ion in ions.values()]) * Ha_to_eV / Bohr_to_Ang
         atoms.set_array('forces', forces)
-        
+
         # Energy and enthalpy from E field: [E_total, E_enthalpy]
         e_field = frame.get('E')
         if e_field:
             atoms.info['energy'] = e_field[0][0] * Ha_to_eV
             atoms.info['enthalpy'] = e_field[0][1] * Ha_to_eV
-        
+
         # Stress tensor (convert to Voigt notation: xx, yy, zz, yz, xz, xy)
         stress_tensor = frame.get('S')
         if stress_tensor is not None:
             s = np.array(stress_tensor) * Ha_Bohr3_to_GPa
             atoms.info['stress'] = np.array([s[0,0], s[1,1], s[2,2], s[1,2], s[0,2], s[0,1]])
-        
+
         atoms.info['iteration'] = i + 1
         trajectory.append(atoms)
-    
+
     return trajectory
 
 
 @app.function
 def castep_to_trajectory(file_path):
     """Parse .castep file into ASE Atoms trajectory.
-    
+
     Each Atoms object has:
       - arrays['forces']: Forces on each atom (eV/Å)
       - info['enthalpy']: Enthalpy in eV
       - info['stress_max']: Max stress (GPa) from minimisation data, or None
-      - info['converged']: Whether this iteration met convergence criteria
       - info['iteration']: 1-based iteration number
-    
+
     Note: Only the first run is parsed. If the file contains multiple runs
     (e.g., continuation/restarted calculations), a warning is printed.
     """
     file_path = Path(file_path)
-    
+
     parsed = co.parse_single(file_path)
-    
+
     # Check for multiple runs (continuation/restarted calculations)
     if isinstance(parsed, list) and len(parsed) > 1:
         num_runs = len(parsed)
@@ -195,51 +183,51 @@ def castep_to_trajectory(file_path):
             f"WARNING: {file_path.name} contains {num_runs} separate runs "
             f"(total ~{total_iters} iterations). Using the final run only."
         )
-    
+
     # Use the last run (most recent/final for continuation calculations)
     data = parsed[-1] if isinstance(parsed, list) and parsed else parsed
-    
+
     if 'geom_opt' not in data or 'iterations' not in data['geom_opt']:
         return []
-    
+
     initial_cell = data.get('initial_cell', {}).get('real_lattice')
     trajectory = []
     prev_enthalpy = None
     iteration_num = 0
-    
+
     for iteration in data['geom_opt']['iterations']:
         pos_data = iteration.get('atoms') or iteration.get('positions')
         if not pos_data:
             continue
-        
+
         # Get enthalpy
         enthalpy_data = iteration.get('enthalpy')
         enthalpy = enthalpy_data[0] if isinstance(enthalpy_data, list) else enthalpy_data
-        
+
         # Skip rejected LBFGS iterations (enthalpy unchanged)
         if enthalpy is not None and prev_enthalpy is not None and enthalpy == prev_enthalpy:
             continue
         prev_enthalpy = enthalpy
         iteration_num += 1
-        
+
         # Cell
         cell = iteration.get('cell', {}).get('real_lattice', initial_cell)
         if cell is None:
             continue
-        
+
         # Create Atoms - handle CIF-style labels like 'H [H3]' or 'Si[Si1]' -> element symbol
         import re
         def extract_element(label):
             """Extract element symbol from CIF-style label like 'H [H3]' or 'Si[Si1]'."""
             match = re.match(r'^([A-Z][a-z]?)', label)
             return match.group(1) if match else label
-        
+
         atoms = Atoms(
             symbols=[extract_element(s) for s, _ in pos_data],
             scaled_positions=list(pos_data.values()),
             cell=cell, pbc=True
         )
-        
+
         # Forces - check 'non_descript' first, then 'symmetrised'
         forces_dict = iteration.get('forces', {})
         forces_data = forces_dict.get('non_descript') or forces_dict.get('symmetrised', [])
@@ -248,20 +236,20 @@ def castep_to_trajectory(file_path):
             force_dict = forces_data[-1] if forces_data else {}
             forces = np.array([force_dict.get(k, [0,0,0]) for k in pos_data])
             atoms.set_array('forces', forces)
-        
+
         # Enthalpy
         if enthalpy is not None:
             atoms.info['enthalpy'] = enthalpy
-        
+
         # Convergence data from minimisation
         minimisation = iteration.get('minimisation', [])
         min_data = minimisation[-1] if minimisation else {}
-        
+
         de_ion = min_data.get('de_ion', {})
         f_max = min_data.get('f_max', {})
         dr_max = min_data.get('dr_max', {})
         smax = min_data.get('smax', {})
-        
+
         # Store max stress value - also check stresses dict if smax not in minimisation
         if isinstance(smax, dict) and smax.get('value') is not None:
             atoms.info['stress_max'] = smax['value']
@@ -274,42 +262,32 @@ def castep_to_trajectory(file_path):
                 last_stress = stress_data[-1] if stress_data else None
                 if last_stress is not None:
                     atoms.info['stress_max'] = float(max(abs(x) for x in last_stress))
-        
-        # Converged flag
-        atoms.info['converged'] = all(
-            d.get('converged', False) for d in [de_ion, f_max, dr_max]
-            if isinstance(d, dict)
-        )
-        
+
         atoms.info['iteration'] = iteration_num
         trajectory.append(atoms)
-    
+
     return trajectory
 
 
 @app.function
 def file_to_trajectory(file_path):
     """Parse .geom or .castep file into ASE Atoms trajectory.
-    
+
     Dispatches to geom_to_trajectory() or castep_to_trajectory() based on file extension.
     """
     file_path = Path(file_path)
     file_ext = file_path.suffix.lower()
-    
+
     if file_ext == '.geom':
         return geom_to_trajectory(file_path)
     else:
         return castep_to_trajectory(file_path)
 
 
-# =============================================================================
-# Step 2: list[Atoms] → DataFrame
-# =============================================================================
-
 @app.function
 def trajectory_to_dataframe(trajectory):
     """Convert ASE Atoms trajectory to convergence DataFrame.
-    
+
     Calculates:
       - enthalpy_change_eV: Change from previous iteration
       - max_force_eV_ang: Maximum force magnitude
@@ -319,27 +297,27 @@ def trajectory_to_dataframe(trajectory):
     """
     if not trajectory:
         return pd.DataFrame()
-    
+
     results = []
     prev_enthalpy = None
     prev_positions = None
-    
+
     for atoms in trajectory:
         iteration = atoms.info.get('iteration', len(results) + 1)
         enthalpy = atoms.info.get('enthalpy')
-        
+
         # Enthalpy change
         enthalpy_change = None
         if enthalpy is not None and prev_enthalpy is not None:
             enthalpy_change = enthalpy - prev_enthalpy
         prev_enthalpy = enthalpy
-        
+
         # Max force
         max_force = None
         if 'forces' in atoms.arrays:
             force_mags = np.linalg.norm(atoms.arrays['forces'], axis=1)
             max_force = float(force_mags.max())
-        
+
         # Max displacement
         max_disp = None
         positions = atoms.get_positions()
@@ -347,20 +325,17 @@ def trajectory_to_dataframe(trajectory):
             displacements = np.linalg.norm(positions - prev_positions, axis=1)
             max_disp = float(displacements.max())
         prev_positions = positions.copy()
-        
+
         # Max stress
         max_stress = None
         if 'stress' in atoms.info:
             max_stress = float(np.max(np.abs(atoms.info['stress'])))
         elif 'stress_max' in atoms.info:
             max_stress = atoms.info['stress_max']
-        
+
         # Volume
         volume = float(atoms.get_volume())
-        
-        # Converged flag
-        # converged = atoms.info.get('converged', False)
-        
+
         results.append({
             'iteration': iteration,
             'enthalpy_eV': enthalpy,
@@ -369,22 +344,17 @@ def trajectory_to_dataframe(trajectory):
             'max_displacement_ang': max_disp,
             'max_stress_GPa': max_stress,
             'volume_ang3': volume,
-            # 'converged': converged,
         })
-    
+
     return pd.DataFrame(results)
 
-
-# =============================================================================
-# Step 3: DataFrame → Summary
-# =============================================================================
 
 @app.function
 def dataframe_to_summary(df, filename=""):
     """Generate text summary from convergence DataFrame."""
-    if df.empty:
+    if df is None or df.empty:
         return "No geometry optimization data found."
-    
+
     lines = [
         f"\n{'='*60}",
         f"CASTEP Geometry Optimization Summary{': ' + filename if filename else ''}",
@@ -392,7 +362,7 @@ def dataframe_to_summary(df, filename=""):
         f"Total iterations:      {len(df)}",
         f"Final enthalpy:        {df['enthalpy_eV'].iloc[-1]:.6f} eV",
     ]
-    
+
     if df['enthalpy_change_eV'].notna().any():
         lines.append(f"Final enthalpy change: {df['enthalpy_change_eV'].iloc[-1]:.2e} eV")
     if df['max_force_eV_ang'].notna().any():
@@ -403,9 +373,7 @@ def dataframe_to_summary(df, filename=""):
         lines.append(f"Final max stress:      {df['max_stress_GPa'].iloc[-1]:.6f} GPa")
     if df['volume_ang3'].notna().any():
         lines.append(f"Final volume:          {df['volume_ang3'].iloc[-1]:.3f} Å³")
-    if 'converged' in df.columns:
-        lines.append(f"Converged:             {df['converged'].iloc[-1]}")
-    
+
     lines.append(f"{'='*60}\n")
     return '\n'.join(lines)
 
@@ -435,7 +403,7 @@ def _(file_upload, mo):
 def _(file_upload, tempfile):
     def parse_uploaded_file(uploaded_file):
         """Parse uploaded .geom or .castep file using the pipeline.
-        
+
         Returns (trajectory, df) where trajectory has normalized force_magnitude for visualization.
         """
         if uploaded_file is None:
@@ -449,10 +417,10 @@ def _(file_upload, tempfile):
         try:
             # Step 1: File → list[Atoms]
             trajectory = file_to_trajectory(temp_path)
-            
+
             # Step 2: list[Atoms] → DataFrame  
             df = trajectory_to_dataframe(trajectory)
-            
+
             # Add force_magnitude array for visualization (normalized log scale 0-1)
             if trajectory and 'forces' in trajectory[0].arrays:
                 all_mags = np.concatenate([
@@ -460,11 +428,10 @@ def _(file_upload, tempfile):
                     for a in trajectory if 'forces' in a.arrays
                 ])
                 if len(all_mags):
-                    log_min, log_max = np.log10(0.01), np.log10(max(all_mags.max(), 1.0))
+                    log_min, log_max = np.log10(all_mags.min()), np.log10(all_mags.max())
                     for atoms in trajectory:
                         if 'forces' in atoms.arrays:
                             mags = np.linalg.norm(atoms.arrays['forces'], axis=1)
-                            mags = np.clip(mags, 0.01, None)
                             atoms.set_array('force_magnitude', (np.log10(mags) - log_min) / (log_max - log_min))
 
             return trajectory, df
@@ -483,17 +450,19 @@ def _(df, mo):
         if val is None or (isinstance(val, float) and val != val):  # NaN check
             return "N/A"
         return f"{val:{fmt}}{suffix}"
-    
-    summary_table = f"""
-        ## Summary
-        | Metric | Value |
-        |--------|-------|
-        | Total iterations | {len(df)} |
-        | Converged iterations | {df['converged'].sum() if 'converged' in df.columns else 0} |
-        | Final enthalpy | {format_value(df['enthalpy_eV'])} eV |
-        | Final max force | {format_value(df['max_force_eV_ang'])} eV/Å |
-        | Final max stress | {format_value(df['max_stress_GPa'])} GPa |
-        """
+
+    if df is None or len(df) == 0:
+        summary_table = "## Summary\n_No geometry optimization data found._"
+    else:
+        summary_table = f"""
+            ## Summary
+            | Metric | Value |
+            |--------|-------|
+            | Total iterations | {len(df)} |
+            | Final enthalpy | {format_value(df['enthalpy_eV'])} eV |
+            | Final max force | {format_value(df['max_force_eV_ang'])} eV/Å |
+            | Final max stress | {format_value(df['max_stress_GPa'])} GPa |
+            """
     mo.md(summary_table) if df is not None and len(df) > 0 else None
     return
 
@@ -509,6 +478,7 @@ def _(df, mo):
 
 @app.cell
 def _(mo):
+    show_tolerances = mo.ui.checkbox(label="Show tolerance controls. Make sure to enter your own values of these.", value=False)
     enthalpy_tolerance = mo.ui.number(
         value=1e-5, start=1e-10, stop=1.0, step=1e-6,
         label="Enthalpy tolerance (eV)"
@@ -525,7 +495,13 @@ def _(mo):
         value=0.01, start=1e-6, stop=10.0, step=0.001,
         label="Stress tolerance (GPa)"
     )
-    return disp_tolerance, enthalpy_tolerance, force_tolerance, stress_tolerance
+    return (
+        disp_tolerance,
+        enthalpy_tolerance,
+        force_tolerance,
+        show_tolerances,
+        stress_tolerance,
+    )
 
 
 @app.cell
@@ -569,7 +545,7 @@ def _(df, enthalpy_chart):
 
 
 @app.cell
-def _(alt, force_tolerance, selected_df):
+def _(alt, force_tolerance, selected_df, show_tolerances):
     # Force chart - only show if force data exists
     force_chart = None
     if selected_df is not None and len(selected_df) > 0:
@@ -580,13 +556,13 @@ def _(alt, force_tolerance, selected_df):
                 alt.Chart(_df).mark_line(point=True, color='green').encode(
                     x='iteration:Q', y=alt.Y('max_force_eV_ang:Q', title='Max Force (eV/Å)', scale=alt.Scale(type='log')),
                     tooltip=['iteration', 'max_force_eV_ang']),
-                alt.Chart(_df).mark_rule(color='red', strokeDash=[5,5]).encode(y='tolerance:Q')
+                *([alt.Chart(_df).mark_rule(color='red', strokeDash=[5,5]).encode(y='tolerance:Q')] if show_tolerances.value else [])
             ).properties(title='Force', width=280, height=200)
     return (force_chart,)
 
 
 @app.cell
-def _(alt, enthalpy_tolerance, selected_df):
+def _(alt, enthalpy_tolerance, selected_df, show_tolerances):
     # Enthalpy change chart
     enthalpy_change_chart = None
     if selected_df is not None:
@@ -595,14 +571,14 @@ def _(alt, enthalpy_tolerance, selected_df):
             # Use absolute value for log scale
             _df['abs_enthalpy_change'] = _df['enthalpy_change_eV'].abs()
             _df['tolerance'] = enthalpy_tolerance.value
-            
+
             # Calculate domain including tolerance for proper scaling
             data_min = _df['abs_enthalpy_change'].min()
             data_max = _df['abs_enthalpy_change'].max()
             tol = enthalpy_tolerance.value
             min_val = max(min(data_min, tol) * 0.5, 1e-10)  # Include tolerance, avoid zero
             max_val = max(data_max, tol) * 2
-            
+
             enthalpy_change_chart = alt.layer(
                 alt.Chart(_df).mark_line(point=True, color='steelblue').encode(
                     x='iteration:Q', 
@@ -611,13 +587,13 @@ def _(alt, enthalpy_tolerance, selected_df):
                             axis=alt.Axis(format='.0e')),
                     tooltip=['iteration', 'enthalpy_change_eV']
                 ),
-                alt.Chart(_df).mark_rule(color='red', strokeDash=[5,5]).encode(y='tolerance:Q')
+                *([alt.Chart(_df).mark_rule(color='red', strokeDash=[5,5]).encode(y='tolerance:Q')] if show_tolerances.value else [])
             ).properties(title='Enthalpy Change', width=280, height=200)
     return (enthalpy_change_chart,)
 
 
 @app.cell
-def _(alt, disp_tolerance, selected_df):
+def _(alt, disp_tolerance, selected_df, show_tolerances):
     # Displacement chart
     disp_chart = None
     if selected_df is not None:
@@ -628,13 +604,13 @@ def _(alt, disp_tolerance, selected_df):
                 alt.Chart(_df).mark_line(point=True, color='orange').encode(
                     x='iteration:Q', y=alt.Y('max_displacement_ang:Q', title='Max Disp (Å)', scale=alt.Scale(type='log')),
                     tooltip=['iteration', 'max_displacement_ang']),
-                alt.Chart(_df).mark_rule(color='red', strokeDash=[5,5]).encode(y='tolerance:Q')
+                *([alt.Chart(_df).mark_rule(color='red', strokeDash=[5,5]).encode(y='tolerance:Q')] if show_tolerances.value else [])
             ).properties(title='Displacement', width=280, height=200)
     return (disp_chart,)
 
 
 @app.cell
-def _(alt, selected_df, stress_tolerance):
+def _(alt, selected_df, show_tolerances, stress_tolerance):
     # Stress chart (only if stress data exists)
     stress_chart = None
     if selected_df is not None and selected_df['max_stress_GPa'].notna().any():
@@ -647,7 +623,7 @@ def _(alt, selected_df, stress_tolerance):
                     y=alt.Y('max_stress_GPa:Q', title='Max Stress (GPa)', scale=alt.Scale(type='log')),
                     tooltip=['iteration', 'max_stress_GPa']
                 ),
-                alt.Chart(_df).mark_rule(color='red', strokeDash=[5,5]).encode(y='tolerance:Q')
+                *([alt.Chart(_df).mark_rule(color='red', strokeDash=[5,5]).encode(y='tolerance:Q')] if show_tolerances.value else [])
             ).properties(title='Stress', width=280, height=200)
     return (stress_chart,)
 
@@ -677,6 +653,7 @@ def _(
     force_tolerance,
     mo,
     selection_info,
+    show_tolerances,
     stress_chart,
     stress_tolerance,
     volume_chart,
@@ -686,16 +663,17 @@ def _(
         # Build rows for grid layout
         row1 = [c for c in [enthalpy_change_chart, force_chart] if c]
         row2 = [c for c in [disp_chart, stress_chart, volume_chart] if c]
-        
+
         # Build tolerance controls (only show if corresponding chart exists)
         tolerances = [enthalpy_tolerance, force_tolerance, disp_tolerance]
         if stress_chart:
             tolerances.append(stress_tolerance)
-        
+
         mo.output.append(mo.vstack([
             enthalpy_chart,
             mo.md(selection_info) if selection_info else None,
-            mo.hstack(tolerances, justify='start', gap=2),
+            show_tolerances,
+            mo.hstack(tolerances, justify='start', gap=2) if show_tolerances.value else None,
             mo.hstack(row1, justify='start', gap=2) if row1 else None,
             mo.hstack(row2, justify='start', gap=2) if row2 else None
         ]))
@@ -786,8 +764,9 @@ def _(
 @app.cell
 def _(df, mo):
     # Show raw data table (collapsible)
-    return mo.accordion({"📊 Raw Data Table": mo.ui.table(df, selection=None)}) if df is not None and len(df) > 0 else None
-
+    if df is not None and len(df) > 0:
+        mo.output.append(mo.accordion({"📊 Raw Data Table": mo.ui.table(df, selection=None)}))
+    return
 
 
 def cli():
