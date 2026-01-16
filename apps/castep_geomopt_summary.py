@@ -1,39 +1,21 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "marimo",
+#     "altair==6.0.0",
+#     "ase==3.27.0",
 #     "castep-outputs==0.2.0",
-#     "pandas",
-#     "numpy",
-#     "ase",
-#     "altair<6.0.0",
-#     "pyarrow",
-#     "weas-widget==0.1.26",
+#     "marimo>=0.19.2",
+#     "numpy==2.4.1",
+#     "pandas==2.3.3",
+#     "weas-widget==0.2.4",
 # ]
 # ///
-"""
-CASTEP Geometry Optimization Convergence Dashboard
-
-This uses the [castep-outputs](https://github.com/oerc0122/castep_outputs) package to parse CASTEP `.geom` or `.castep` files
-
-Pipeline:
-  1. File → list[Atoms]:  geom_to_trajectory() / castep_to_trajectory()
-  2. list[Atoms] → DataFrame:  trajectory_to_dataframe()
-  3. DataFrame → Summary:  dataframe_to_summary()
-
-Usage:
-  As marimo app: marimo run castep_geomopt_summary.py
-  As CLI tool:   python castep_geomopt_summary.py input.geom [-o output.csv] [-q]
-"""
-
-from __future__ import annotations
 
 import marimo
 
-__generated_with = "0.18.1"
+__generated_with = "0.19.2"
 app = marimo.App(width="medium")
 
-# Setup cell: imports available to @app.function decorated functions
 with app.setup:
     import castep_outputs as co
     from castep_outputs.parsers.md_geom_file_parser import parse_md_geom_frame
@@ -659,14 +641,14 @@ def _(
     volume_chart,
 ):
     # Display all charts in grid
-    if enthalpy_chart:
+    if enthalpy_chart is not None:
         # Build rows for grid layout
         row1 = [c for c in [enthalpy_change_chart, force_chart] if c]
         row2 = [c for c in [disp_chart, stress_chart, volume_chart] if c]
 
         # Build tolerance controls (only show if corresponding chart exists)
         tolerances = [enthalpy_tolerance, force_tolerance, disp_tolerance]
-        if stress_chart:
+        if stress_chart is not None:
             tolerances.append(stress_tolerance)
 
         mo.output.append(mo.vstack([
@@ -688,7 +670,11 @@ def _(mo, trajectory):
 
 @app.cell
 def _(ASEAdapter, AtomsViewer, BaseWidget, mo):
-    def view_trajectory(atoms_list, model_style=1, show_bonded_atoms=False, color_by_force=False):
+    def view_trajectory(atoms_list,
+                        model_style=1,
+                        show_bonded_atoms=False,
+                        color_by_force=False,
+                        boundary=[[-0.1, 1.1], [-0.1, 1.1], [-0.1, 1.1]]):
         """Display ASE Atoms trajectory using weas-widget."""
         if not atoms_list:
             return mo.md("_No trajectory data available._")
@@ -696,10 +682,10 @@ def _(ASEAdapter, AtomsViewer, BaseWidget, mo):
         if not isinstance(atoms_list, list):
             atoms_list = [atoms_list]
 
-        v = AtomsViewer(BaseWidget(guiConfig={"controls": {"enabled": True}}))
+        v = AtomsViewer(BaseWidget(guiConfig={"controls": {"enabled": False}}))
         v.atoms = ASEAdapter.to_weas(atoms_list[0]) if len(atoms_list) == 1 else [ASEAdapter.to_weas(a) for a in atoms_list]
         v.model_style = model_style
-        v.boundary = [[-0.1, 1.1], [-0.1, 1.1], [-0.1, 1.1]]
+        v.boundary = boundary
         v.show_bonded_atoms = show_bonded_atoms
         v.color_type = "VESTA"
 
@@ -714,27 +700,65 @@ def _(ASEAdapter, AtomsViewer, BaseWidget, mo):
 @app.cell
 def _(mo, trajectory):
     # Viewer controls
-    if trajectory:
+    if len(trajectory) > 0:
         has_forces = hasattr(trajectory[0], 'arrays') and 'force_magnitude' in trajectory[0].arrays
         model_style_dropdown = mo.ui.dropdown(
             options={'Ball': 0, 'Ball and Stick': 1, 'Polyhedral': 2, 'Stick': 3},
             value='Ball and Stick', label='Model Style'
         )
-        show_bonded = mo.ui.checkbox(label='Show bonded atoms', value=False)
+        show_bonded = mo.ui.checkbox(label='Show bonded atoms outside boundary', value=False)
         color_by_force_cb = mo.ui.checkbox(label='Color by force', value=False) if has_forces else None
 
+        # Boundary controls for unit cell visualization (debounced to prevent widget race conditions)
+        boundary_a_min = mo.ui.number(value=0.0, step=0.01, stop=0, label='**a**(min) = ', debounce=True)
+        boundary_a_max = mo.ui.number(value=1.0, step=0.01, start=1, label='**a**(max) = ', debounce=True)
+        boundary_b_min = mo.ui.number(value=0.0, step=0.01, stop=0, label='**b**(min) = ', debounce=True)
+        boundary_b_max = mo.ui.number(value=1.0, step=0.01, start=1, label='**b**(max) = ', debounce=True)
+        boundary_c_min = mo.ui.number(value=0.0, step=0.01, stop=0, label='**c**(min) = ', debounce=True)
+        boundary_c_max = mo.ui.number(value=1.0, step=0.01, start=1, label='**c**(max) = ', debounce=True)
+
         _controls = [model_style_dropdown, show_bonded]
-        if color_by_force_cb:
+        if color_by_force_cb is not None:
             _controls.append(color_by_force_cb)
-        mo.output.append(mo.hstack(_controls, justify='start', gap=2))
+
+        _boundary_controls = mo.vstack([
+            mo.hstack([boundary_a_min, boundary_a_max], justify='start'),
+            mo.hstack([boundary_b_min, boundary_b_max], justify='start'),
+            mo.hstack([boundary_c_min, boundary_c_max], justify='start'),
+        ], justify='start')
+
+        mo.output.append(mo.vstack([
+            mo.hstack(_controls, justify='start'),
+            mo.accordion({"⚙️ Boundary Settings": mo.vstack([
+            mo.md('**Ranges of fractional coordinates:**'),
+            _boundary_controls
+            ])}),
+        ], gap=1))
     else:
         has_forces = False
         model_style_dropdown = show_bonded = color_by_force_cb = None
-    return color_by_force_cb, model_style_dropdown, show_bonded
+        boundary_a_min = boundary_a_max = boundary_b_min = boundary_b_max = boundary_c_min = boundary_c_max = None
+    return (
+        boundary_a_max,
+        boundary_a_min,
+        boundary_b_max,
+        boundary_b_min,
+        boundary_c_max,
+        boundary_c_min,
+        color_by_force_cb,
+        model_style_dropdown,
+        show_bonded,
+    )
 
 
 @app.cell
 def _(
+    boundary_a_max,
+    boundary_a_min,
+    boundary_b_max,
+    boundary_b_min,
+    boundary_c_max,
+    boundary_c_min,
     color_by_force_cb,
     max_iter,
     min_iter,
@@ -744,13 +768,19 @@ def _(
     trajectory,
     view_trajectory,
 ):
-    if trajectory and model_style_dropdown:
+    if len(trajectory) > 0:
         filtered_trajectory = trajectory[min_iter - 1 : max_iter]
+        boundary = [
+            [boundary_a_min.value, boundary_a_max.value],
+            [boundary_b_min.value, boundary_b_max.value],
+            [boundary_c_min.value, boundary_c_max.value]
+        ]
         viewer = view_trajectory(
             filtered_trajectory,
             model_style=model_style_dropdown.value,
-            show_bonded_atoms=show_bonded.value if show_bonded else False,
-            color_by_force=color_by_force_cb.value if color_by_force_cb else False
+            show_bonded_atoms=show_bonded.value if show_bonded.value else False,
+            color_by_force=color_by_force_cb.value if color_by_force_cb.value else False,
+            boundary=boundary
         )
         mo.output.append(mo.vstack([
             mo.md(f"_Showing **{len(filtered_trajectory)}** structures (iterations {min_iter} to {max_iter})_"),
@@ -769,74 +799,5 @@ def _(df, mo):
     return
 
 
-def cli():
-    """Command-line interface for extracting geometry optimization data."""
-    import argparse
-    import sys
-    from pathlib import Path
-    
-    parser = argparse.ArgumentParser(
-        description='Extract geometry optimization convergence data from CASTEP files.',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''
-Examples:
-  %(prog)s calculation.geom                    # Print summary to stdout
-  %(prog)s calculation.castep -o results.csv   # Save to CSV
-  %(prog)s calculation.geom -o results.json    # Save to JSON
-        '''
-    )
-    parser.add_argument('input', type=Path, help='Input .geom or .castep file')
-    parser.add_argument('-o', '--output', type=Path, help='Output file (.csv, .json, .xlsx)')
-    parser.add_argument('-q', '--quiet', action='store_true', help='Suppress summary output')
-    
-    args = parser.parse_args()
-    
-    if not args.input.exists():
-        print(f"Error: File not found: {args.input}", file=sys.stderr)
-        sys.exit(1)
-    
-    if args.input.suffix.lower() not in ['.geom', '.castep']:
-        print(f"Error: Unsupported file type: {args.input.suffix}", file=sys.stderr)
-        print("Supported types: .geom, .castep", file=sys.stderr)
-        sys.exit(1)
-    
-    # Use the @app.function decorated functions directly
-    # Step 1: File → list[Atoms]
-    trajectory = file_to_trajectory(args.input)
-    
-    # Step 2: list[Atoms] → DataFrame
-    df = trajectory_to_dataframe(trajectory)
-    
-    if df.empty:
-        print("Error: No geometry optimization data found in file.", file=sys.stderr)
-        sys.exit(1)
-    
-    # Step 3: DataFrame → Summary
-    if not args.quiet:
-        print(dataframe_to_summary(df, args.input.name))
-    
-    if args.output:
-        suffix = args.output.suffix.lower()
-        if suffix == '.csv':
-            df.to_csv(args.output, index=False)
-        elif suffix == '.json':
-            df.to_json(args.output, orient='records', indent=2)
-        elif suffix in ['.xlsx', '.xls']:
-            df.to_excel(args.output, index=False)
-        elif suffix == '.parquet':
-            df.to_parquet(args.output, index=False)
-        else:
-            print(f"Warning: Unknown format '{suffix}', saving as CSV", file=sys.stderr)
-            df.to_csv(args.output, index=False)
-        
-        if not args.quiet:
-            print(f"Data saved to: {args.output}")
-
-
 if __name__ == "__main__":
-    import sys
-    # Check if running via marimo or as standalone script
-    if len(sys.argv) > 1 and sys.argv[1] not in ['run', 'edit']:
-        cli()
-    else:
-        app.run()
+    app.run()
