@@ -3,8 +3,8 @@
 # dependencies = [
 #     "altair==6.0.0",
 #     "ase==3.27.0",
-#     "castep_outputs==0.2.0",
-#     "marimo>=0.19.2",
+#     "castep-outputs==0.2.0",
+#     "marimo==0.19.4",
 #     "numpy==2.4.1",
 #     "pandas==2.3.3",
 #     "weas-widget==0.2.4",
@@ -19,12 +19,27 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
+    import marimo as mo
+    return (mo,)
+
+@app.cell
+def _():
+    import sys
+    if sys.platform == "emscripten":  # Running in Pyodide/WASM
+        import micropip
+        await micropip.install("weas-widget==0.2.4", deps=False)
+        await micropip.install(["castep-outputs==0.2.0", "ase==3.27.0", "anywidget"])
+
+
+@app.cell
+def _():
     import castep_outputs as co
     from castep_outputs.parsers.md_geom_file_parser import parse_md_geom_frame
     import pandas as pd
     import numpy as np
     from pathlib import Path
     from ase import Atoms, units
+
 
     def format_file_scrollable(content, max_height="300px"):
         """Format full file content in a scrollable container for error display."""
@@ -43,10 +58,7 @@ def _():
     )
 
 
-@app.cell
-def _():
-    import marimo as mo
-    return (mo,)
+
 
 
 @app.cell(hide_code=True)
@@ -68,9 +80,6 @@ def _():
     from weas_widget.base_widget import BaseWidget
     from weas_widget.atoms_viewer import AtomsViewer
     from weas_widget.utils import ASEAdapter
-
-    # Use JSON serialization instead of Arrow (avoids pyarrow dependency)
-    alt.data_transformers.enable('default')
     return ASEAdapter, AtomsViewer, BaseWidget, alt, tempfile
 
 
