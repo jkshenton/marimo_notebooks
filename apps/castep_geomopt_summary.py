@@ -3,7 +3,7 @@
 # dependencies = [
 #     "altair==6.0.0",
 #     "ase==3.27.0",
-#     "castep-outputs==0.2.0",
+#     "castep_outputs==0.2.0",
 #     "marimo>=0.19.2",
 #     "numpy==2.4.1",
 #     "pandas==2.3.3",
@@ -68,6 +68,9 @@ def _():
     from weas_widget.base_widget import BaseWidget
     from weas_widget.atoms_viewer import AtomsViewer
     from weas_widget.utils import ASEAdapter
+
+    # Use JSON serialization instead of Arrow (avoids pyarrow dependency)
+    alt.data_transformers.enable('default')
     return ASEAdapter, AtomsViewer, BaseWidget, alt, tempfile
 
 
@@ -999,14 +1002,6 @@ def _(
         ]))
     else:
         mo.output.append(mo.md("_Upload a file to view the structure trajectory._"))
-    return
-
-
-@app.cell
-def _(df, mo):
-    # Show raw data table (collapsible)
-    if df is not None and len(df) > 0:
-        mo.output.append(mo.accordion({"📊 Raw Data Table": mo.ui.table(df, selection=None)}))
     return
 
 
