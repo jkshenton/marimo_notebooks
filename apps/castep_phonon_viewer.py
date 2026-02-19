@@ -1,13 +1,13 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "marimo==0.19.6",
+#     "marimo==0.19.11",
 #     "castep-outputs==0.2.0",
 #     "pandas==2.3.3",
 #     "numpy==2.4.1",
 #     "ase==3.27.0",
 #     "altair<6.0.0",
-#     "weas-widget==0.1.26",
+#     "weas-widget==0.2.6",
 # ]
 # ///
 """
@@ -21,13 +21,14 @@ Usage:
 
 import marimo
 
-__generated_with = "0.19.6"
+__generated_with = "0.19.11"
 app = marimo.App(width="medium")
 
 
 @app.cell
 def _():
     import marimo as mo
+
     return (mo,)
 
 
@@ -45,6 +46,85 @@ def _(mo):
 
 
 @app.cell
+def _(mo):
+    local_run_help_text = r"""
+    ### Running this notebook locally
+
+    The easiest way to run this notebook on your machine is with **`uvx`**, which creates a temporary, sandboxed Python environment.
+
+    If you don't have `uxv` installed, you can get it with pip:
+    ```bash
+    pip install uvx
+    ```
+
+    If you don't have `pip` you can also install `uvx` following [these instructions](https://docs.astral.sh/uv/getting-started/installation/#standalone-installer).
+
+    #### Get a local copy
+
+    Clone or download the file directly from GitHub:
+
+    You can go to this URL and click the download button:
+
+    https://github.com/jkshenton/marimo_notebooks/blob/main/apps/castep_phonon_viewer.py
+
+    Or:
+
+
+    ```bash
+    # Clone the whole repo
+    git clone https://github.com/jkshenton/marimo_notebooks.git
+    cd marimo_notebooks/apps
+
+    # Or download just this file
+    curl -O https://raw.githubusercontent.com/jkshenton/marimo_notebooks/main/apps/castep_phonon_viewer.py
+    ```
+
+    #### Run a local copy
+
+    ```bash
+    uvx marimo run castep_phonon_viewer.py --sandbox
+    ```
+
+    You can also run the notebook in "edit" mode. This allows you to see and modify the code.
+
+    ```bash
+    uvx marimo edit castep_phonon_viewer.py --sandbox
+    ```
+
+    #### What `--sandbox` does
+
+    * Automatically creates an isolated virtual Python environment
+    * Installs required dependencies declared in the file
+    * Runs the notebook safely without affecting your system Python
+
+    No manual environment setup is required.
+
+
+    #### Run directly from GitHub (no download needed)
+
+    You can also run the notebook directly from GitHub without downloading it. It will ask you if you 
+    want to run in a containerised environment for security. Generally this is recommended if you don't know or trust the source of a notebook. However it requires Docker to be installed and isn't needed for this particular notebook.
+
+    Note that this is separate from the `--sandbox` flag that runs the notebook in an isolated Python environment. 
+    The containerised environment is an additional layer of security that isolates the entire notebook execution from your system.
+
+    ```bash
+    uvx marimo run https://raw.githubusercontent.com/jkshenton/marimo_notebooks/main/apps/castep_phonon_viewer.py --sandbox
+    ```
+
+    """
+
+
+
+    mo.accordion(
+        {
+            "💻 Run this notebook locally": mo.md(local_run_help_text)
+        }
+    )
+    return
+
+
+@app.cell
 def _():
     import castep_outputs as co
     import numpy as np
@@ -52,6 +132,7 @@ def _():
     from pathlib import Path
     from ase import Atoms
     import tempfile
+
     return Atoms, Path, co, np, pd, tempfile
 
 
@@ -60,6 +141,7 @@ def _():
     from weas_widget.base_widget import BaseWidget
     from weas_widget.atoms_viewer import AtomsViewer
     from weas_widget.utils import ASEAdapter
+
     return ASEAdapter, AtomsViewer, BaseWidget
 
 
