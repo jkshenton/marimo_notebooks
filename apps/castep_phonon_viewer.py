@@ -1,11 +1,11 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "marimo",
+#     "marimo==0.19.6",
 #     "castep-outputs==0.2.0",
-#     "pandas",
-#     "numpy",
-#     "ase",
+#     "pandas==2.3.3",
+#     "numpy==2.4.1",
+#     "ase==3.27.0",
 #     "altair<6.0.0",
 #     "weas-widget==0.1.26",
 # ]
@@ -21,7 +21,7 @@ Usage:
 
 import marimo
 
-__generated_with = "0.18.3"
+__generated_with = "0.19.6"
 app = marimo.App(width="medium")
 
 
@@ -182,7 +182,7 @@ def _(mo, phonon_data):
                 return f"q{i+1}: {qpt_str} dir=[{d[0]:.2f},{d[1]:.2f},{d[2]:.2f}]"
             else:
                 return f"q{i+1}: {qpt_str} [w={q['weight']:.4f}]"
-        
+
         qpt_options = {
             _format_qpt(i, q): i 
             for i, q in enumerate(phonon_data['qpts'])
@@ -240,11 +240,13 @@ def _(mo):
     # Visualization controls
     amplitude_slider = mo.ui.slider(
         start=0.2, stop=5.0, step=0.2, value=1.0,
-        label="Amplitude"
+        label="Amplitude",
+        debounce=True
     )
     arrow_scale = mo.ui.slider(
         start=0.0, stop=2.0, step=0.1, value=1.0,
-        label="Arrow scale"
+        label="Arrow scale",
+        debounce=True
     )
     static_arrows = mo.ui.checkbox(
         value=False,
@@ -252,7 +254,8 @@ def _(mo):
     )
     n_frames = mo.ui.slider(
         start=10, stop=60, step=5, value=20,
-        label="Animation frames"
+        label="Animation frames",
+        debounce=True
     )
     repeat_x = mo.ui.number(value=2, start=1, stop=6, step=1, label="Repeat X")
     repeat_y = mo.ui.number(value=2, start=1, stop=6, step=1, label="Repeat Y")
@@ -320,6 +323,8 @@ def _(
     repeat_z,
     static_arrows,
 ):
+    # Clear previous output before rendering new widget
+    mo.output.clear()
     # Phonon visualisation
     if phonon_data and qpt_selector and mode_selector:
         _qpt_idx = qpt_selector.value
@@ -349,7 +354,7 @@ def _(
         }
 
         # Create viewer using AtomsViewer with BaseWidget (marimo compatible)
-        _v = AtomsViewer(BaseWidget(guiConfig={"controls": {"enabled": True}}))
+        _v = AtomsViewer(BaseWidget(guiConfig={"controls": {"enabled": False}}))
         _v.atoms = ASEAdapter.to_weas(phonon_data['atoms'])
         _v.model_style = 1  # Ball and Stick
         _v.boundary = [[-0.1, 1.1], [-0.1, 1.1], [-0.1, 1.1]]
@@ -376,13 +381,13 @@ def _(mo, pd, phonon_data):
             _weight = _qpt_data['weight']
             _direction = _qpt_data['direction']
             _ir_data = _qpt_data['ir_intensity']
-            
+
             # Format direction if present
             if _direction:
                 _dir_str = f"[{_direction[0]:.2f}, {_direction[1]:.2f}, {_direction[2]:.2f}]"
             else:
                 _dir_str = '-'
-            
+
             for _mode_idx, _freq in enumerate(_qpt_data['eigenvalues']):
                 _rows.append({
                     'Q-point': f"({_qpt[0]:.3f}, {_qpt[1]:.3f}, {_qpt[2]:.3f})",
