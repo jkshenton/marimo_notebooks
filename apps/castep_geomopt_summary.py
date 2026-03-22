@@ -4,16 +4,16 @@
 #     "altair==6.0.0",
 #     "ase==3.27.0",
 #     "castep-outputs==0.2.0",
-#     "marimo==0.19.4",
+#     "marimo==0.19.6",
 #     "numpy==2.4.1",
 #     "pandas==2.3.3",
-#     "weas-widget==0.2.4",
+#     "weas-widget==0.2.6",
 # ]
 # ///
 
 import marimo
 
-__generated_with = "0.19.4"
+__generated_with = "0.19.6"
 app = marimo.App(width="medium")
 
 
@@ -21,14 +21,6 @@ app = marimo.App(width="medium")
 def _():
     import marimo as mo
     return (mo,)
-
-@app.cell
-def _():
-    import sys
-    if sys.platform == "emscripten":  # Running in Pyodide/WASM
-        import micropip
-        await micropip.install("weas-widget==0.2.4", deps=False)
-        await micropip.install(["castep-outputs==0.2.0", "ase==3.27.0", "anywidget"])
 
 
 @app.cell
@@ -56,9 +48,6 @@ def _():
         pd,
         units,
     )
-
-
-
 
 
 @app.cell(hide_code=True)
@@ -173,10 +162,14 @@ def _(Atoms, Path, format_file_scrollable, np, parse_md_geom_frame, units):
             try:
                 # Cell and positions
                 cell = np.array(lattice[-3:]) * Bohr_to_Ang
-                symbols = [s for s, _ in ions.keys()]
+                # Strip CASTEP species tags (e.g. "H:Mu" → "H") for ASE compatibility
+                original_labels = [s for s, _ in ions.keys()]
+                symbols = [s.split(':')[0] for s in original_labels]
                 positions = np.array([ion['R'] for ion in ions.values()]) * Bohr_to_Ang
 
                 atoms = Atoms(symbols=symbols, positions=positions, cell=cell, pbc=True)
+                # Preserve original CASTEP species labels (e.g. "H:Mu") as a custom array
+                atoms.set_array('castep_custom_species', np.array(original_labels))
 
                 # Forces (eV/Å)
                 forces = np.array([ion['F'] for ion in ions.values()]) * Ha_to_eV / Bohr_to_Ang
@@ -1011,6 +1004,50 @@ def _(
         ]))
     else:
         mo.output.append(mo.md("_Upload a file to view the structure trajectory._"))
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    local_run_help_text = r"""
+    ### 🚀 Running this notebook locally
+
+    The easiest way to run this notebook on your machine is with **`uvx`**, which creates a temporary, sandboxed Python environment.
+
+    #### 1. Install `uvx` (if needed)
+    ```bash
+    pip install uvx
+    ```
+
+    #### 2. Launch the notebook
+
+    ```bash
+    uvx marimo run castep_geomopt_summary.py --sandbox
+    ```
+
+    #### What this does
+
+    * Automatically creates an isolated virtual environment
+    * Installs required dependencies
+    * Runs the notebook safely without affecting your system Python
+
+    No manual environment setup is required.
+    """
+
+
+
+    mo.accordion(
+        {
+            "💻 Run this notebook locally": mo.md(local_run_help_text)
+        }
+    )
+
+
+    return
+
+
+@app.cell
+def _():
     return
 
 
