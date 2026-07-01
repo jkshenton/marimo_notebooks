@@ -3,7 +3,7 @@
 # dependencies = [
 #     "altair==6.0.0",
 #     "ase==3.27.0",
-#     "castep-outputs==0.2.0",
+#     "castep-outputs==0.3.3",
 #     "marimo==0.19.6",
 #     "numpy==2.4.1",
 #     "pandas==2.3.3",

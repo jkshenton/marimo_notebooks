@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #     "marimo==0.19.11",
-#     "castep-outputs==0.2.0",
+#     "castep-outputs==0.3.3",
 #     "pandas==2.3.3",
 #     "numpy==2.4.1",
 #     "ase==3.27.0",
@@ -21,7 +21,7 @@ Usage:
 
 import marimo
 
-__generated_with = "0.19.11"
+__generated_with = "0.23.4"
 app = marimo.App(width="medium")
 
 
@@ -167,6 +167,8 @@ def _(file_upload, mo):
 
 @app.cell
 def _(Atoms, Path, co, file_upload, np, tempfile):
+    import re
+
     def parse_phonon_file(uploaded_file):
         """Parse uploaded .phonon file using castep_outputs.
 
@@ -191,7 +193,11 @@ def _(Atoms, Path, co, file_upload, np, tempfile):
             coords = data['coords']
             scaled_positions = np.array([coords['u'], coords['v'], coords['w']]).T
             symbols = coords['spec']
+            # Strip out anything in symbol after a non-alpha character (e.g. "Fe1" -> "Fe" or "H:Mu" -> "H")
+            symbols = [re.match(r'[a-zA-Z]+', symbol).group() for symbol in symbols]
             masses = coords['mass']
+
+            print(coords['spec'])
 
             atoms = Atoms(
                 symbols=symbols,
@@ -486,6 +492,12 @@ def _(mo, pd, phonon_data):
             mo.md("## Frequency Summary"),
             mo.ui.table(_freq_df)
         ]))
+    return
+
+
+@app.cell
+def _(phonon_data):
+    print(len(phonon_data['atoms'].positions))
     return
 
 
