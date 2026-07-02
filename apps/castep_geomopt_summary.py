@@ -1,10 +1,10 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "altair==6.0.0",
+#     "altair<6.0.0",
 #     "ase==3.27.0",
 #     "castep-outputs==0.3.3",
-#     "marimo==0.19.6",
+#     "marimo==0.23.10",
 #     "numpy==2.4.1",
 #     "pandas==2.3.3",
 #     "weas-widget==0.2.6",
@@ -13,7 +13,7 @@
 
 import marimo
 
-__generated_with = "0.19.6"
+__generated_with = "0.23.10"
 app = marimo.App(width="medium")
 
 

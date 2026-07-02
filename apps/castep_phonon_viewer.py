@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "marimo==0.19.11",
+#     "marimo==0.23.10",
 #     "castep-outputs==0.3.3",
 #     "pandas==2.3.3",
 #     "numpy==2.4.1",
@@ -21,7 +21,7 @@ Usage:
 
 import marimo
 
-__generated_with = "0.23.4"
+__generated_with = "0.23.10"
 app = marimo.App(width="medium")
 
 
